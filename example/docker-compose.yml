@@ -1,0 +1,24 @@
+services:
+  claude-dev:
+    build: .
+    container_name: example_container
+    ports:
+      - "5173:5173"
+      - "3000:3000"
+      - '4321:4321'
+    volumes:
+      - example_data:/app
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    stdin_open: true
+    tty: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+
+volumes:
+  example_data:
+    name: example_data
