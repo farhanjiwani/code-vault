@@ -9,13 +9,13 @@ if [ -f "$RESTORE_FILE" ]; then
   read -p "Are you sure? (y/n): " CONFIRM
   if [ "$CONFIRM" == "y" ]; then
     echo "Stopping containers to ensure a safe restore..."
-    docker-compose stop
+    docker compose stop
     echo "Restoring data..."
     MSYS_NO_PATHCONV=1 docker run --rm \
       -v example_data:/dest \
       -v $(pwd):/backup \
       alpine sh -c "rm -rf /dest/* && tar xzf /backup/$RESTORE_FILE -C /dest" \
-      && echo "Restore complete! Run 'docker-compose up -d' to start your environment again." \
+      && echo "Restore complete! Run 'docker compose up -d' to start your environment again." \
       || echo "ERROR: Restore failed!"
   fi
 else

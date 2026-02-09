@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/farhanjiwani/code-vault"></a> <a href="https://github.com/farhanjiwani/code-vault/commits/main/"><img alt="GitHub commits since latest release" src="https://img.shields.io/github/commits-since/farhanjiwani/code-vault/latest"></a>
   <br />
-  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v1.1.0.zip"></a>
+  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v1.1.1.zip"></a>
 </p>
 
 ---
@@ -212,7 +212,7 @@ Because of Named Volumes usage, the data is essentially a portable "brain" that 
 
 - Something stuck? Won't start after a restore?
   `docker compose logs -f` will help find exactly what the error could be
-- If `docker compose` doesn't work, just use `docker compose` (no hyphen)
+- Ensure you are using `docker compose` (no hyphen), as the docker-compose command is deprecated.
 
 ### Reminders
 

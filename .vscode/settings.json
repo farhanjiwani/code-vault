@@ -8,7 +8,9 @@
         "MSYS",
         "oneline",
         "PATHCONV",
+        "pgrep",
         "tmpfs",
+        "usermod",
         "Vite",
         "zoolander"
     ]

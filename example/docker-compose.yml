@@ -2,6 +2,17 @@ services:
   claude-dev:
     build: .
     container_name: example_container
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.npm
+      - /home/node/.config
+      - /home/node/.cache
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
     ports:
       - "5173:5173"
       - "3000:3000"
@@ -12,6 +23,12 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     stdin_open: true
     tty: true
+    healthcheck:
+      test: ["CMD", "pgrep", "claude"] # Checks if 'claude' process exists
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s # Gives Claude time to initialize first
     security_opt:
       - no-new-privileges:true
     cap_drop:

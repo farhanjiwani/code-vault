@@ -1,0 +1,8 @@
+.git
+.env
+node_modules
+*.tar.gz
+Dockerfile
+docker-compose.yml
+backup.sh
+restore.sh
