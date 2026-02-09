@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/farhanjiwani/code-vault"></a> <a href="https://github.com/farhanjiwani/code-vault/commits/main/"><img alt="GitHub commits since latest release" src="https://img.shields.io/github/commits-since/farhanjiwani/code-vault/latest"></a>
   <br />
-  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v1.0.0.zip"></a>
+  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v1.1.0.zip"></a>
 </p>
 
 ---
@@ -22,18 +22,36 @@
 
 ### Before You Begin...
 
-> ⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠
+> ⚠
 > **Use at your own risk!**
-> ⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠⚠
+> ⚠
 
 I am not responsible for any harm or loss that occurs while using this script or the containers it has created. Use your own caution when dealing with AI tools such as Claude.
 
-This script has been tested on:
+This script has been tested on (so far:
+OR( )
 
 - [x] Windows (WSL)
 - [x] Windows (Git BASH)
 - [ ] Linux
 - [ ] Mac
+
+#### UID Remapping
+
+**For extra security,** to prevent "container scapes", make sure the UID for the user within the container (username: _node_), doesn't match the UID of the user running the container.
+
+The default generated Dockerfile in this script maps user _node_ to UID 5001. Check what your UID is and change the UID for _node_ if it still matches.
+
+```bash
+# Outside of the container (WSL or Git BASH)
+# Get your username
+whoami
+
+# Get your ID
+id -u <YOUR_USERNAME>
+# OR (Alternative method)
+echo $UID
+```
 
 ### Building & Starting the Sandbox Container
 
@@ -43,20 +61,22 @@ For Windows, install [Docker Desktop](https://docs.docker.com/desktop/setup/inst
 
 - Run `setup-project.sh` in a new project directory and follow the instructions.
 - **(Optional):** skip naming step by passing a project name as first argument.
-    - `sh setup-project.sh my-new-project`
+    - `sh setup-project.sh <project_name>`
 - **(Optional):** automatically build the container with `--build` (`-b`) as 2nd argument.
     - **(Windows)** Ensure the Docker Desktop is running.
-    - `sh setup-project.sh my-new-project-final -b`
-    - This will also automatically run `git init` and `npm init -y` from the `/app` directory inside the sandbox
+    - `sh setup-project.sh <new_project_name> -b`
+    - This will also automatically run `git init` and `npm init -y` from the `/app` directory inside the sandbox, as well as inject a Git-ignored `.env` file there.
 
 #### Manual Mode
 
 - Create project directory
 - Copy included `Dockerfile` & `docker-compose.yml` to project directory
+    - **SECURITY NOTE:** `tmpfs: /tmp` is required because the filesystem is read-only
     - If desired, update:
         - Node version (`Dockerfile`)
         - Container and named volume names (YML file)
-    - **NOTE:** named volume name has 2 fields to update in the YML file
+            - **NOTE:** named volume name has 2 fields to update in the YML file
+        - Exposed ports (YML file)
 - Build & start the container
 
 ```bash
@@ -105,7 +125,7 @@ In the generated Dockerfile, there is a section where you can add your own custo
 docker compose up -d
 
 # Enter the sandbox
-docker exec -it [your_project_name]_container bash
+docker exec -it [project_name]_container bash
 
 # Init project (first time only)
 npm init -y
@@ -115,7 +135,7 @@ git init
 claude
 ```
 
-Everything will be safe in the `[your_project_name]_data` folder, even if the container is deleted, or Docker is updated, or your computer is turned off.
+Everything will be safe in the `[project_name]_data` folder, even if the container is deleted, or Docker is updated, or your computer is turned off.
 
 ### Inspecting Code
 
@@ -186,7 +206,7 @@ Because of Named Volumes usage, the data is essentially a portable "brain" that 
 | c-up    | `docker compose up -d`                        | Start container                     |
 | c-down  | `docker compose down`                         | Kill container (but keep the data). |
 | c-enter | `docker exec -it ${PROJ_NAME}_container bash` | Jump in                             |
-| c-back  | `sh backup.sh`                                | Create backup of data               |
+| c-back  | `sh backup.sh`                                | "Zip it _out!_"                     |
 | c-logs  | `docker compose logs -f`                      | See what's actually going on        |
 
 ## Troubleshooting

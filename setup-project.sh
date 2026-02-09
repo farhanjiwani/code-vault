@@ -22,13 +22,29 @@ MSYS_NO_PATHCONV=1 mkdir -p "$PROJ_NAME" \
 echo "ANTHROPIC_API_KEY=sk-ant-xxxxxxxxx..." > .env.example
 cp .env.example .env
 
-# 4. Create Dockerfile
+# 4. Docker
+# 4a. Create .dockerignore
+cat <<EOF > .dockerignore
+.git
+.env
+node_modules
+*.tar.gz
+Dockerfile
+docker-compose.yml
+backup.sh
+restore.sh
+EOF
+
+# 4b. Create Dockerfile
 cat <<EOF > Dockerfile
 # UPDATE version for official Node.js image if needed
 FROM node:22-slim
 
+# UPDATE UID & Group ID if it is the same as your WSL UID to prevent "escapes"
+RUN usermod -u 5001 node && groupmod -g 5001 node
+
 # Minimum system dependencies Claude needs to work effectively
-RUN apt-get update && apt-get install -y git ripgrep curl \
+RUN apt-get update && apt-get install -y git ripgrep curl jq tree shadow \\
   && rm -rf /var/lib/apt/lists/*
 
 # Install Claude (globally)
@@ -72,15 +88,23 @@ GIT_PROMPT
 USER node
 
 # Entry point
-CMD ["/bin/bash"]
+# CMD ["/bin/bash"]
+CMD ["claude"]
 EOF
 
-# 5. Create docker-compose.yml
+# 4c. Create docker-compose.yml
 cat <<EOF > docker-compose.yml
 services:
   claude-dev:
     build: .
     container_name: ${PROJ_NAME}_container
+    read_only: true
+    tmpfs: /tmp
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
     ports:
       - "5173:5173"
       - "3000:3000"
@@ -91,6 +115,12 @@ services:
       - ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}
     stdin_open: true
     tty: true
+    healthcheck:
+      test: ["CMD", "pgrep", "claude"] # Checks if 'claude' process exists
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s # Gives Claude time to initialize first
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -140,13 +170,13 @@ if [ -f "\$RESTORE_FILE" ]; then
   read -p "Are you sure? (y/n): " CONFIRM
   if [ "\$CONFIRM" == "y" ]; then
     echo "Stopping containers to ensure a safe restore..."
-    docker-compose stop
+    docker compose stop
     echo "Restoring data..."
     MSYS_NO_PATHCONV=1 docker run --rm \\
       -v ${PROJ_NAME}_data:/dest \\
       -v \$(pwd):/backup \\
       alpine sh -c "rm -rf /dest/* && tar xzf /backup/\$RESTORE_FILE -C /dest" \\
-      && echo "Restore complete! Run 'docker-compose up -d' to start your environment again." \\
+      && echo "Restore complete! Run 'docker compose up -d' to start your environment again." \\
       || echo "ERROR: Restore failed!"
   fi
 else
@@ -164,6 +194,7 @@ if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
     git init \
     && git branch -m main \
     && npm init -y \
+    && echo 'ANTHROPIC_API_KEY=sk-ant-xxx' > /app/.env \
     && curl -L https://raw.githubusercontent.com/github/gitignore/refs/heads/main/Node.gitignore -o /app/.gitignore \
     && cat <<'GIT_IGNORE' >> /app/.gitignore
 
