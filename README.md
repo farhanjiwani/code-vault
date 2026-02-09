@@ -28,8 +28,7 @@
 
 I am not responsible for any harm or loss that occurs while using this script or the containers it has created. Use your own caution when dealing with AI tools such as Claude.
 
-This script has been tested on (so far:
-OR( )
+This script has been tested on (so far):
 
 - [x] Windows (WSL)
 - [x] Windows (Git BASH)
