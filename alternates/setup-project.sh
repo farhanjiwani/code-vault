@@ -1,8 +1,7 @@
-#!/usr/bin/env bash
-set -eo pipefail
+#!/bin/bash
 
 # Code Vault
-# v2.1.0
+# v2.0.0
 # https://github.com/farhanjiwani/code-vault
 
 # 00. Pinned Versions && User UID ARGs
@@ -11,136 +10,22 @@ set -eo pipefail
 ## - [x] linux/amd64
 ## - [ ] linux/arm64/v8
 ## - [ ] linux/ppc64le
-NODE_VERSION="24.18.0"
 NODE_IMG_DIGEST="sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d"
 GIT_PROMPT_HASH="fbcdfab34852329929e6bfdd2bac8e49f2e3d8e3"
 GITIGNORE_HASH="10b26ce43da9337f75fb3d4e8d034c4a30ea6f96"
+USER_UID="5001"
 
-echo -e "\e[94m=== Code Vault Configuration Wizard ===\e[0m\n"
+# 0. Passed Args (optional)
+PROJ_NAME=$1     # [(string) <PROJECT_NAME>] dir of same name will be made
+AUTO_BUILD=$2    # [--build | -b] build and perform default `init` commands
 
-# 0. Check for existing configuration
-CONFIG_FILE=".harness-config"
-if [ -f "$CONFIG_FILE" ]; then
-    read -p $'\e[33mExisting configuration found. Use it?\e[0m (Y/n): ' USE_EXISTING
-    USE_EXISTING=${USE_EXISTING:-Y}
-    if [[ "${USE_EXISTING,,}" == "y" ]]; then
-        source "$CONFIG_FILE"
-        echo "Loaded saved configuration."
-        SKIP_WIZARD=true
-    fi
+# 1. Project Name
+# 1a. Prompt for the name (if not passed as arg $1)
+if [ -z "$PROJ_NAME" ]; then
+    read -p "Enter project name [claude_workspace]: " PROJ_NAME
 fi
-
-if [ "${SKIP_WIZARD:-false}" != true ]; then
-    # 1. Project Name
-    PROJ_NAME="${PROJ_NAME}"
-    if [ -z "${PROJ_NAME+x}" ]; then
-        read -p $'\e[36m1. Project Name\e[0m [claude_workspace]: ' PROJ_NAME
-	PROJ_NAME=${PROJ_NAME:-claude_workspace}
-    fi
-
-    # 2. Host UID (Auto-detects the current user's ID to prevent Docker file lockouts)
-    USER_UID="${USER_UID}"
-    if [ -z "${USER_UID+x}" ]; then
-        DETECTED_UID=$(id -u 2>/dev/null || echo 5001)
-	read -p $'\e[36m2. Container User UID\e[0m [Host UID: '"$DETECTED_UID"']: ' USER_UID
-	USER_UID=${USER_UID:-$DETECTED_UID}
-    fi
-
-    # 3. Exposed Ports (Defaults cover Astro, Vue/Nuxt, and Vite)
-    PROJ_PORTS="${PROJ_PORTS}"
-    if [ -z "${PROJ_PORTS+x}" ]; then
-        read -p $'\e[36m3. Exposed Ports\e[0m (Space-separated) [5173 3000 4321]: ' PROJ_PORTS
-	PROJ_PORTS=${PROJ_PORTS:-5173 3000 4321}
-    fi
-
-    # 4. Resource Limits (Native Bash select menu)
-    CPUS="${CPUS}"
-    MEM="${MEM}"
-    if [ -z "${CPUS+x}" ] || [ -z "${MEM+x}" ] ; then
-        echo -e "\n\e[36m4. Container Resource Limits:\e[0m"
-	PS3="Select a profile (1-3): "
-	select RES_PROFILE in "Lightweight (1 CPU / 2GB)" "Standard (2 CPU / 4GB)" "Uncapped (Use all host resources)"; do
-	    case $REPLY in
-		1) CPUS="1.0"; MEM="2G"; break ;;
-		2) CPUS="2.0"; MEM="4G"; break ;;
-		3) CPUS="0"; MEM="0"; break ;;
-		*) echo "Invalid option. Please enter 1, 2, or 3." ;;
-	    esac
-        done
-	echo ""
-    fi
-
-    # 5. Optional Packages
-    APT_PKGS="${APT_PKGS}"
-    if [ -z "${APT_PKGS+x}" ]; then
-        read -p $'\e[36m5. Extra apt packages\e[0m (Space-separated) [vim]: ' APT_PKGS
-	APT_PKGS=${APT_PKGS:-vim}
-    fi
-
-    # 6. DNS Resolution
-    CUSTOM_DNS="${CUSTOM_DNS}"
-    if [ -z "${CUSTOM_DNS+x}" ]; then
-	read -p $'\e[36m6. Custom DNS\e[0m (e.g., 8.8.8.8. Leave blank for Docker default): ' CUSTOM_DNS
-    fi
-
-    # 7. Auto-Build
-    AUTO_BUILD="${AUTO_BUILD}"
-    if [ -z "${AUTO_BUILD+x}" ]; then
-	read -p $'\e[36m8. Initialize and build container immediately?\e[0m (Y/n): ' AUTO_BUILD
-	AUTO_BUILD=${AUTO_BUILD:-Y}
-    fi
-
-    # 8. Save Configuration (Stateless by default, persistent by choice)
-    SAVE_CONF="${SAVE_CONF}"
-    if [ -z "${SAVE_CONF+x}" ]; then
-	read -p $'\e[36m9. Save these settings to \e[1m'"$CONFIG_FILE"$'\e[22m for future runs?\e[0m (Y/n): ' SAVE_CONF
-	SAVE_CONF=${SAVE_CONF:-Y}
-    fi
-
-    if [[ "${SAVE_CONF,,}" == "y" ]]; then
-        cat <<EOF > "$CONFIG_FILE"
-PROJ_NAME="$PROJ_NAME"
-USER_UID="$USER_UID"
-PROJ_PORTS="$PROJ_PORTS"
-CPUS="$CPUS"
-MEM="$MEM"
-APT_PKGS="$APT_PKGS"
-CUSTOM_DNS="$CUSTOM_DNS"
-NODE_VERSION="$NODE_VERSION"
-AUTO_BUILD="$AUTO_BUILD"
-EOF
-        echo -e "\e[92mConfiguration saved to $CONFIG_FILE\e[0m"
-    fi
-fi
-
-# 1. Format YAML
-# Format Ports
-PORT_BINDINGS=""
-for port in $PROJ_PORTS; do
-  PORT_BINDINGS="$PORT_BINDINGS
-      - \"127.0.0.1:${port}:${port}\""
-done
-
-# Format DNS conditionally
-DNS_BLOCK=""
-if [ -n "$CUSTOM_DNS" ]; then
-  DNS_BLOCK="
-    dns:
-      - ${CUSTOM_DNS}"
-fi
-
-# Format Resource Limits conditionally
-RESOURCE_BLOCK=""
-if [ "$CPUS" != "0" ]; then
-  RESOURCE_BLOCK="
-    deploy:
-      resources:
-        limits:
-          cpus: '${CPUS}'
-          memory: ${MEM}"
-fi
-
-echo -e "\n\e[92m=== Generating Environment ===\e[0m"
+# 1b. Use default name as failsafe
+PROJ_NAME=${PROJ_NAME:-claude_workspace}
 
 # 2. Create project directory and enter it
 ## MSYS_NO_PATHCONV=1 disables converting Unix-style paths to Windows-style ones
@@ -170,43 +55,48 @@ EOF
 # 4b. Create Dockerfile
 cat <<EOF > Dockerfile
 # Uses:
-#  - node-slim: https://hub.docker.com/layers/library/node/${NODE_VERSION}-bookworm-slim/
+#  - node-slim: https://hub.docker.com/layers/library/node/24.18.0-bookworm-slim/
 # Installs:
 #  - passwd (usermod/groupmod), curl
 #  - Claude helpers: git, ripgrep, jq, tree
 #  - git-prompt.sh
-FROM node:${NODE_VERSION}-bookworm-slim@${NODE_IMG_DIGEST}
+FROM node:24.18.0-bookworm-slim@${NODE_IMG_DIGEST}
 ARG GIT_PROMPT_HASH=${GIT_PROMPT_HASH}
 ARG USER_UID=${USER_UID}
 
+EOF
+cat <<'EOF' >> Dockerfile
 # Create app dir
 WORKDIR /app
 
-RUN apt-get update \\
-  && apt-get install -y --no-install-recommends passwd \\
-  && usermod -u \${USER_UID} node && groupmod -g \${USER_UID} node
+# !! UPDATE UID & Group ID if same as your WSL UID to prevent "escapes"
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends passwd \
+  && usermod -u ${USER_UID} node && groupmod -g ${USER_UID} node
 
-# Inject the dynamic apt packages
-RUN apt-get install -y git ripgrep curl jq tree ${APT_PKGS} \\
-  && curl -fSL --retry 3 --max-time 30 \\
-  "https://raw.githubusercontent.com/git/git/\${GIT_PROMPT_HASH}/contrib/completion/git-prompt.sh" -o /tmp/.git-prompt.sh \\
-  && chown -R node:node /app \\
+RUN apt-get install -y git ripgrep curl jq tree \
+  && curl -fSL --retry 3 --max-time 30 \
+  "https://raw.githubusercontent.com/git/git/${GIT_PROMPT_HASH}/contrib/completion/git-prompt.sh" -o /tmp/.git-prompt.sh \
+  && chown -R node:node /app \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Claude (globally)
 RUN npm install -g @anthropic-ai/claude-code
+
+# !! Optional Installs - UPDATE AS NEEDED
+RUN apt-get install -y vim
 
 # Clean PATH
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/node/.local/bin"
 
 # Stage dotfiles in a safe read-only location.
 # These get copied into the writable /home/node tmpfs at boot by the entrypoint.
-RUN mkdir -p /opt/node-dotfiles \\
+RUN mkdir -p /opt/node-dotfiles \
   && mv /tmp/.git-prompt.sh /opt/node-dotfiles/.git-prompt.sh
 
 RUN cat <<'GIT_PROMPT' > /opt/node-dotfiles/.bashrc
 source /home/node/.git-prompt.sh
-export PS1='[\[\e[1;37;104m\]\u\[\e[0m\]@\[\e[1;30m\]\h\[\e[0m\] \[\e[93m\]\W\[\e[33m\]\$(__git_ps1 " (%s)")\[\e[0m\]]\$ '
+export PS1='[\[\e[1;37;104m\]\u\[\e[0m\]@\[\e[1;30m\]\h\[\e[0m\] \[\e[93m\]\W\[\e[33m\]$(__git_ps1 " (%s)")\[\e[0m\]]\$ '
 
 # Helpful aliases
 alias ls='ls --color=auto'
@@ -242,8 +132,8 @@ cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc
 cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh
 
 # 2. Create standard dirs Claude Code expects
-mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \\
-  /home/node/.claude /home/node/.local/share /home/node/.local/bin \\
+mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \
+  /home/node/.claude /home/node/.local/share /home/node/.local/bin \
   /home/node/.npm-global
 
 # 3. WARM START: Restore Claude memory from persistent volume if it exists
@@ -253,10 +143,10 @@ if [ -d "/app/.vault_memory/.claude" ]; then
     cp /app/.vault_memory/.claude.json /home/node/.claude.json
 fi
 
-exec "\$@"
+exec "$@"
 ENTRYPOINT_SCRIPT
 
-RUN chmod +x /opt/node-dotfiles/entrypoint.sh \\
+RUN chmod +x /opt/node-dotfiles/entrypoint.sh \
   && chown -R node:node /opt/node-dotfiles
 
 # Ensure user isn't root
@@ -274,14 +164,25 @@ services:
   claude-dev:
     build: .
     container_name: ${PROJ_NAME}_container
-    read_only: true${RESOURCE_BLOCK}
-    ports:${PORT_BINDINGS}
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+    ports:
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4321:4321"
     volumes:
       - ${PROJ_NAME}_data:/app
     tmpfs:
       - /home/node:size=512M,uid=${USER_UID},gid=${USER_UID}
       - /tmp:size=2G,exec
-      - /home/node/.vscode-server:size=2G,exec${DNS_BLOCK}
+      - /home/node/.vscode-server:size=2G,exec
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}
     stdin_open: true
@@ -319,7 +220,7 @@ MSYS_NO_PATHCONV=1 docker run --rm \\
       --exclude='./node_modules' \
       --exclude='./.git' \
       --exclude='./.astro' \
-      -czf /backup/\${BACKUP_NAME} -C /source .
+      -czf /backup/${BACKUP_NAME} -C /source .
 
 # Verification
 if [ -f "\${BACKUP_NAME}" ]; then
@@ -410,7 +311,7 @@ EOF
 chmod +x import.sh
 
 
-if [[ "${AUTO_BUILD,,}" == "y" ]]; then
+if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
   MSYS_NO_PATHCONV=1 docker compose up -d --build
 
   echo -e "\n\e[94;103m Initializing project files inside the volume... \e[0m\n"
