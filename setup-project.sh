@@ -1,8 +1,19 @@
 #!/bin/bash
 
-# 0. Args
-PROJ_NAME=$1     # string, project name
-AUTO_BUILD=$2    # --build, -b
+# Code Vault
+# v1.2.0
+# https://github.com/farhanjiwani/code-vault
+
+# 00. Pinned Versions && User UID ARGs
+## TODO: Pin new hashes/digests to known-good builds every 6 months or o
+NODE_IMG_DIGEST="sha256:5373f1906319b3a1f291da5d102f4ce5c77ccbe29eb637f072b6c7b70443fc36"
+GIT_PROMPT_HASH="fbcdfab34852329929e6bfdd2bac8e49f2e3d8e3"
+GITIGNORE_HASH="10b26ce43da9337f75fb3d4e8d034c4a30ea6f96"
+USER_UID="5001"
+
+# 0. Passed Args (optional)
+PROJ_NAME=$1     # [(string) <PROJECT_NAME>] dir of same name will be made
+AUTO_BUILD=$2    # [--build | -b] build and perform default `init` commands
 
 # 1. Project Name
 # 1a. Prompt for the name (if not passed as arg $1)
@@ -15,7 +26,7 @@ PROJ_NAME=${PROJ_NAME:-claude_workspace}
 # 2. Create project directory and enter it
 MSYS_NO_PATHCONV=1 mkdir -p "$PROJ_NAME" \
   && MSYS_NO_PATHCONV=1 cd "$PROJ_NAME" \
-  || { echo "Failed to enter directory"; exit 1; }
+  || { echo "Failed to enter '${PROJ_NAME}' directory"; exit 1; }
 
 # 3. Create .env template
 # If not using `/login`, add the API key to .env (not the example!)
@@ -27,6 +38,7 @@ cp .env.example .env
 cat <<EOF > .dockerignore
 .git
 .env
+!.env.example
 node_modules
 *.tar.gz
 Dockerfile
@@ -36,23 +48,30 @@ restore.sh
 EOF
 
 # 4b. Create Dockerfile
-cat <<'EOF' > Dockerfile
-# ! UPDATE version for official Node.js image if needed
-FROM node:22-slim
+cat <<EOF > Dockerfile
+# Uses:
+#  - node-slim: https://hub.docker.com/layers/library/node/22-slim/
+# Installs:
+#  - passwd (usermod/groupmod), curl
+#  - Claude helpers: git, ripgrep, jq, tree
+#  - git-prompt.sh
+FROM node:22-slim@${NODE_IMG_DIGEST}
+ARG GIT_PROMPT_HASH=${GIT_PROMPT_HASH}
+ARG USER_UID=${USER_UID}
 
+EOF
+cat <<'EOF' >> Dockerfile
 # Create app dir
 WORKDIR /app
 
-# ! UPDATE UID & Group ID if it is the same as your WSL UID to prevent "escapes"
+# !! UPDATE UID & Group ID if same as your WSL UID to prevent "escapes"
 RUN apt-get update \
   && apt-get install -y --no-install-recommends passwd \
-  && usermod -u 5001 node && groupmod -g 5001 node
+  && usermod -u ${USER_UID} node && groupmod -g ${USER_UID} node
 
-# Install helpful tools, and system dependencies so Claude may work effectively
 RUN apt-get install -y git ripgrep curl jq tree \
-  && curl -L https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh -o /home/node/.git-prompt.sh \
-  && chown node:node /home/node/.git-prompt.sh \
-  && chown -R node:node /home/node \
+  && curl -fSL --retry 3 --max-time 30 \
+  "https://raw.githubusercontent.com/git/git/${GIT_PROMPT_HASH}/contrib/completion/git-prompt.sh" -o /tmp/.git-prompt.sh \
   && chown -R node:node /app \
   && rm -rf /var/lib/apt/lists/*
 
@@ -62,8 +81,12 @@ RUN npm install -g @anthropic-ai/claude-code
 # Clean PATH
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/node/.local/bin"
 
-# Config git-prompt, add helpful aliases, append .bashrc
-RUN cat <<'GIT_PROMPT' >> /home/node/.bashrc
+# Stage dotfiles in a safe read-only location.
+# These get copied into the writable /home/node tmpfs at boot by the entrypoint.
+RUN mkdir -p /opt/node-dotfiles \
+  && mv /tmp/.git-prompt.sh /opt/node-dotfiles/.git-prompt.sh
+
+RUN cat <<'GIT_PROMPT' > /opt/node-dotfiles/.bashrc
 source /home/node/.git-prompt.sh
 export PS1='[\[\e[1;37;104m\]\u\[\e[0m\]@\[\e[1;30m\]\h\[\e[0m\] \[\e[93m\]\W\[\e[33m\]$(__git_ps1 " (%s)")\[\e[0m\]]\$ '
 
@@ -87,52 +110,71 @@ echo -e "\n\e[92m--- Code Vault Ready --- \e[0m"
 echo -e "Type \e[96mclaude\e[0m to start the AI assistant.\n"
 GIT_PROMPT
 
+# Create entrypoint script that hydrates the writable /home/node tmpfs
+RUN cat <<'ENTRYPOINT_SCRIPT' > /opt/node-dotfiles/entrypoint.sh
+#!/bin/bash
+# Copy staged dotfiles into the writable /home/node (tmpfs)
+cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc
+cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh
+
+# Create subdirectories Claude Code expects
+mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \
+         /home/node/.claude /home/node/.local/share /home/node/.local/bin \
+         /home/node/.npm-global
+
+exec "$@"
+ENTRYPOINT_SCRIPT
+
+RUN chmod +x /opt/node-dotfiles/entrypoint.sh \
+  && chown -R node:node /opt/node-dotfiles
+
 # Ensure user isn't root
 USER node
 
-# Entry point
+ENTRYPOINT ["/opt/node-dotfiles/entrypoint.sh"]
 CMD ["/bin/bash"]
 EOF
 
 # 4c. Create docker-compose.yml
+#   - Ports bound to 127.0.0.1 (localhost only) by default
+#   - tmpfs mounts have size limits to prevent RAM exhaustion
 cat <<EOF > docker-compose.yml
 services:
   claude-dev:
     build: .
     container_name: ${PROJ_NAME}_container
     read_only: true
-    tmpfs:
-      - /tmp
-      - /home/node/.npm
-      - /home/node/.config
-      - /home/node/.cache
     deploy:
       resources:
         limits:
           cpus: '2.0'
           memory: 4G
     ports:
-      - "5173:5173"
-      - "3000:3000"
-      - '4321:4321'
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4321:4321"
     volumes:
       - ${PROJ_NAME}_data:/app
+    tmpfs:
+      - /home/node:size=512M,uid=${USER_UID},gid=${USER_UID}
+      - /tmp:size=512M,exec
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}
     stdin_open: true
     tty: true
     healthcheck:
-      test: ["CMD", "pgrep", "claude"] # Checks if 'claude' process exists
-      interval: 30s
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 40s # Gives Claude time to initialize first
+      start_period: 10s
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
 
 volumes:
   ${PROJ_NAME}_data:
@@ -142,22 +184,23 @@ EOF
 # 6. Create local backup script
 cat <<EOF > backup.sh
 #!/bin/bash
+
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="backup_${PROJ_NAME}_\${TIMESTAMP}.tar.gz"
 
-echo "Creating backup: \${BACKUP_NAME}..."
+echo -e "\e[94;103m Creating backup: \e[0m \e[96m\${BACKUP_NAME}\e[0m..."
 MSYS_NO_PATHCONV=1 docker run --rm \\
-  -v ${PROJ_NAME}_data:/source \\
-  -v \$(pwd):/backup \\
+  -v ${PROJ_NAME}_data:/source:ro \\
+  -v "\$(pwd)":/backup \\
   alpine tar czf /backup/\${BACKUP_NAME} -C /source .
 
 # Verification
 if [ -f "\${BACKUP_NAME}" ]; then
-  echo "Done! Snapshot saved to \${BACKUP_NAME}"
-  echo "Contents summary:"
+  echo -e "\e[93;42m Done! \e[0m Snapshot saved.\n"
+  echo -e "\e[4;36mContents summary:\e[0;96m"
   tar -tf "\${BACKUP_NAME}" | head -n 5
 else
-  echo "ERROR: Backup file was not created."
+  echo -e "\e[93;41m ERROR: \e[0m Backup file was not created."
 fi
 EOF
 
@@ -166,27 +209,28 @@ chmod +x backup.sh
 # 7. Create local restore script
 cat <<EOF > restore.sh
 #!/bin/bash
-echo "Available backups in this folder:"
-ls -1 *.tar.gz 2>/dev/null || echo "No backups found."
 
-read -p "Enter the full filename of the backup to restore: " RESTORE_FILE
+echo -e "\e[4;36mAvailable backups in this folder:\e[0;96m"
+ls -1 *.tar.gz 2>/dev/null || echo -e "\e[31m No backups found.\e[0m"
+
+read -p $'\n\e[93;44m Enter the full filename of the backup to restore: \e[0m ' RESTORE_FILE
 
 if [ -f "\$RESTORE_FILE" ]; then
-  echo "Warning: This will wipe the current project volume and replace it with the backup."
-  read -p "Are you sure? (y/n): " CONFIRM
+echo -e "\e[4;43m Warning: \e[0m This will wipe the current project volume and replace it with the\n           backup."
+  read -p $'\n\e[93;44m Are you sure? (y/n): \e[0m ' CONFIRM
   if [ "\$CONFIRM" == "y" ]; then
-    echo "Stopping containers to ensure a safe restore..."
+    echo -e "\e[33mStopping containers to ensure a safe restore..."
     docker compose stop
     echo "Restoring data..."
     MSYS_NO_PATHCONV=1 docker run --rm \\
       -v ${PROJ_NAME}_data:/dest \\
-      -v \$(pwd):/backup \\
+      -v "\$(pwd)":/backup \\
       alpine sh -c "rm -rf /dest/* && tar xzf /backup/\$RESTORE_FILE -C /dest" \\
-      && echo "Restore complete! Run 'docker compose up -d' to start your environment again." \\
-      || echo "ERROR: Restore failed!"
+      && echo -e "\e[93;42m Restore complete! \e[0m Run \e[96mdocker compose up -d\e[0m to start your environment again." \\
+      || echo "\e[93;41m ERROR: \e[0m Restore failed!"
   fi
 else
-  echo "Error: File '\$RESTORE_FILE' not found."
+  echo -e "\e[93;41m ERROR: \e[0m File \e[96m\${RESTORE_FILE}\e[0m not found."
 fi
 EOF
 
@@ -196,12 +240,13 @@ if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
   MSYS_NO_PATHCONV=1 docker compose up -d --build
 
   echo -e "\n\e[94;103m Initializing project files inside the volume... \e[0m\n"
-  docker exec -it "${PROJ_NAME}_container" sh -c " \
+  docker exec -u node -it "${PROJ_NAME}_container" sh -c " \
     git init \
     && git branch -m main \
     && npm init -y \
     && echo 'ANTHROPIC_API_KEY=sk-ant-xxx' > /app/.env \
-    && curl -L https://raw.githubusercontent.com/github/gitignore/refs/heads/main/Node.gitignore -o /app/.gitignore \
+    && curl -fSL --retry 3 --max-time 30 \
+    'https://raw.githubusercontent.com/github/gitignore/${GITIGNORE_HASH}/Node.gitignore' -o /app/.gitignore \
     && cat <<'GIT_IGNORE' >> /app/.gitignore
 
     # Named volume backups
@@ -211,10 +256,12 @@ if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
   printf -- "\e[93m-%0.s" {1..80}
   echo -e "\n\n\e[93;42m Setup complete! \e[0m"
   echo -e "Enter the container: \e[96mcd ${PROJ_NAME} && docker exec -it ${PROJ_NAME}_container bash\e[0m"
+  echo ""
+  echo -e "\e[33m⚠  REMINDER:\e[0m Add your real API key to \e[96m${PROJ_NAME}/.env\e[0m on the host"
+  echo -e "   (unless using \e[96m/login\e[0m), then restart: \e[96mdocker compose restart\e[0m"
 else
   echo -e "\n\e[93;42m Setup complete! \e[0m\n"
   echo -e "\e[4;36mNext steps:\e[0m"
-  echo -e "\e[36m0.\e[0m Ignore any '\e[96m__git_ps1\e[0m: command not found' errors."
   echo -e "\e[36m1a.\e[0m If using Workplace API: Add key to \e[96m$PROJ_NAME/.env\e[0m (see \e[96m.env.example\e[0m)"
   echo -e "\e[36m1b.\e[0m If using Personal Pro: Just run \e[96mclaude\e[0m and type \e[96m/login\e[0m from within the" \ "        container."
   echo -e "\e[36m2.\e[0m Update ports section in \e[96mdocker-compose.yml\e[0m if needed."

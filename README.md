@@ -18,9 +18,9 @@
 - Easily clone the state of one container to new ones
 - Not using Docker Desktop AI Sandbox due to it's _black box-iness_.
 
-## How to Use
+---
 
-### Before You Begin...
+## Before You Begin...
 
 > ⚠
 > **Use at your own risk!**
@@ -35,7 +35,7 @@ This script has been tested on (so far):
 - [ ] Linux
 - [ ] Mac
 
-#### UID Remapping
+### UID Remapping
 
 **For extra security,** to prevent "container scapes", make sure the UID for the user within the container (username: _node_), doesn't match the UID of the user running the container.
 
@@ -51,6 +51,20 @@ id -u <YOUR_USERNAME>
 # OR (Alternative method)
 echo $UID
 ```
+
+## Why Docker?
+
+While alternatives like [Podman](https://podman.io) offer rootless security by default, **Code Vault** uses Docker for several key reasons:
+
+- **WSL/Windows Stability:** Docker Desktop provides the most reliable bridge for volume mounting and networking on Windows hosts.
+- **Ecosystem Compatibility:** Many AI agents and development tools expect a Docker-standard environment to function correctly.
+- **Predictable Permissions:** The UID/GID mapping (UID 5001) implemented in this script provides a high level of isolation on the host without the complexity of Podman's sub-UID management.
+
+In short: Docker allowed us to build a "Vault" that is secure without being impossible to use on a daily basis.
+
+---
+
+## How to Use
 
 ### Building & Starting the Sandbox Container
 
@@ -110,7 +124,7 @@ In the generated Dockerfile, there is a section where you can add your own custo
 - Enter the sandbox with the `container_name` in the YML file
 - Initialize npm project and Git
 - If using **Claude Code (API key):**
-    - Copy included `.env.example` to `/app/.env`
+    - A `.env` file should already exist. If not, copy the included `.env.example` to `/app/.env`
     - Add API key to `.env` file
         - The container will automatically use this key for all prompts.
 - Run Claude
@@ -118,6 +132,7 @@ In the generated Dockerfile, there is a section where you can add your own custo
     - Log in with the `/login` command, if not prompted.
     - Go to magic login link provided in your external browser
     - Paste the generated string into the prompt
+    - Since `/home/node` is a temporary memory-disk, you will have to log in each time
 
 ```bash
 # Start the cached version of the container if not already started
@@ -213,6 +228,11 @@ Because of Named Volumes usage, the data is essentially a portable "brain" that 
 - Something stuck? Won't start after a restore?
   `docker compose logs -f` will help find exactly what the error could be
 - Ensure you are using `docker compose` (no hyphen), as the docker-compose command is deprecated.
+- If you encounter permission issues, ensure you haven't changed the `USER_UID` in the script to match your host UID, as this can cause mount conflicts in WSL
+
+### `.bashrc`
+
+The container uses a 'Hydration' system. To permanently change aliases or shell settings, you must update the `Dockerfile` and rebuild, as `/home/node` is a temporary memory-disk for security reasons.
 
 ### Reminders
 
@@ -228,3 +248,23 @@ Because of Named Volumes usage, the data is essentially a portable "brain" that 
     - **!! WARNING !!:** Using the `-a` flag will also delete your volumes!
 - Clear the build cache: `docker builder prune -a`
 - Clear orphaned networks: `docker network prune`
+- Update digests and hashes every 6 months or so to known-good versions
+
+---
+
+## 🤝 Contributing & New Agents
+
+Want to use a different AI agent (like Aider, OpenDevin, or Mentat) inside the Vault? I'd love to see your configurations!
+
+If you've successfully adapted the `setup-project.sh` for another tool, please:
+
+1. **Open an Issue** with the title `Agent: [Agent Name]`
+2. **Share your Dockerfile snippet** and any specific `tmpfs` mounts required.
+
+### Contribution Requirements:
+
+To keep the "Vault" secure, all proposed agent configs must:
+
+- Use a **non-root user** (mapped to something like a UID of 5001).
+- Support a **read-only filesystem** (using `tmpfs` for caches).
+- Stay **minimal** (based on `-slim` images where possible).
