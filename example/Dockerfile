@@ -53,21 +53,34 @@ alias gd='git diff'
 alias gds='git diff --staged'
 alias gl='git log --oneline --graph --all'
 
+# Save/Export Claude's memory before exiting the container.
+alias c-exit='echo -e "\e[33mSaving memory...\e[0m" && mkdir -p /app/.vault_memory && cp -r /home/node/.claude /app/.vault_memory/ && cp /home/node/.claude.json /app/.vault_memory/.claude.json 2>/dev/null && exit'
+
 echo -e "\n\e[92m--- Code Vault Ready --- \e[0m"
 echo -e "Type \e[96mclaude\e[0m to start the AI assistant.\n"
+echo -e "Type \e[96mc-exit\e[0m to save memory to the host & exit.\n"
 GIT_PROMPT
 
 # Create entrypoint script that hydrates the writable /home/node tmpfs
 RUN cat <<'ENTRYPOINT_SCRIPT' > /opt/node-dotfiles/entrypoint.sh
 #!/bin/bash
+
+# 1. Hydrate Shell
 # Copy staged dotfiles into the writable /home/node (tmpfs)
 cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc
 cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh
 
-# Create subdirectories Claude Code expects
+# 2. Create standard dirs Claude Code expects
 mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \
-         /home/node/.claude /home/node/.local/share /home/node/.local/bin \
-         /home/node/.npm-global
+  /home/node/.claude /home/node/.local/share /home/node/.local/bin \
+  /home/node/.npm-global
+
+# 3. WARM START: Restore Claude memory from persistent volume if it exists
+if [ -d "/app/.vault_memory/.claude" ]; then
+    echo -e "\e[33mRestoring Claude memory from Vault...\e[0m"
+    cp -r /app/.vault_memory/.claude/. /home/node/.claude/
+    cp /app/.vault_memory/.claude.json /home/node/.claude.json
+fi
 
 exec "$@"
 ENTRYPOINT_SCRIPT
