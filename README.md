@@ -97,28 +97,6 @@ For Windows, install [Docker Desktop](https://docs.docker.com/desktop/setup/inst
 docker compose up -d --build
 ```
 
-#### Custom Aliases
-
-In the generated Dockerfile, there is a section where you can add your own custom aliases if desired.
-
-##### Included Aliases
-
-| Alias  | Command                           |
-| :----- | :-------------------------------- |
-| `ls`   | `ls --color=auto`                 |
-| `la`   | `ls -la`                          |
-| `lsg`  | `ls --group-directories-first`    |
-| `grep` | `grep --color=auto`               |
-| `..`   | `cd ..`                           |
-| `...`  | `cd ../..`                        |
-| `gfp`  | `git fetch --all -p`              |
-| `gco`  | `git checkout`                    |
-| `gs`   | `git status`                      |
-| `ga`   | `git add`                         |
-| `gd`   | `git diff`                        |
-| `gds`  | `git diff --staged`               |
-| `gl`   | `git log --oneline --graph --all` |
-
 ### Inside the Sandbox
 
 - Enter the sandbox with the `container_name` in the YML file
@@ -176,6 +154,91 @@ docker compose stop
 docker compose down
 ```
 
+### Helpers
+
+#### Included Aliases (within Code Vault)
+
+| Alias    | Effect                                                                                            |
+| :------- | :------------------------------------------------------------------------------------------------ |
+| `la`     | Lists all files (including hidden ones) in long format (`-la`).                                   |
+| `lsg`    | Lists files with directories shown first.                                                         |
+| `..`     | Moves up one directory (`cd ..`).                                                                 |
+| `...`    | Moves up two directories (`cd ../..`).                                                            |
+| `gfp`    | Fetches all Git remotes and prunes any deleted branches.                                          |
+| `gco`    | `git checkout`, e.g., `gco -b feat/new-fature`                                                    |
+| `gs`     | `git status`                                                                                      |
+| `ga`     | `git add`, e.g., `ga ./src`                                                                       |
+| `gd`     | `git diff`                                                                                        |
+| `gds`    | `git diff --staged`                                                                               |
+| `gl`     | Shows a compact, graphical git log of all branches (`git log --oneline --graph --all`).           |
+| `c-exit` | Creates `/app/.vault_memory` if needed, copies Claude’s memory files there, then exits the shell. |
+
+To add/edit/remove, you can either edit the generated `Dockerfile` per project or update `script-setup.sh`. Search for `# Helpful aliases`. Rebuild the container in order to use your changes next time you use the container.
+
+#### Alias Suggestions (for Host)
+
+| Alias     | Command                                             | Purpose                                           |
+| :-------- | :-------------------------------------------------- | :------------------------------------------------ |
+| `c-up`    | `docker compose up -d`                              | Start container                                   |
+| `c-down`  | `docker compose down`                               | Destroy container (Data/Memory is safe in Volume) |
+| `c-enter` | `docker exec -it $(basename "$PWD")_container bash` | Jump in                                           |
+| `c-logs`  | `docker compose logs -f`                            | View container logs                               |
+
+#### Generated Scripts (for Host)
+
+| Name          | Command               | Purpose                                  |
+| :------------ | :-------------------- | :--------------------------------------- |
+| Import        | `sh import.sh`        | Bulk import code from host to container  |
+| Backup        | `sh backup.sh`        | Backup entire project volume (`.tar.gz`) |
+| Backup Memory | `sh backup-memory.sh` | Snapshot Claude's memory to host         |
+
+### 🧠 Migration & Memory Management
+
+The Vault uses a "Warm Start" architecture to keep your AI's context persistent, even though the container's OS (`/home/node`) is reset every time you restart.
+
+#### 1. The "Warm Start" Lifecycle
+
+- **Startup:** The container automatically pulls your last saved `.claude` memory from the secure volume into the fast RAM disk.
+- **Work:** You coding with Claude (everything happens in RAM).
+- **Exit (`c-exit`):** **CRITICAL step.** Instead of typing `exit`, type `c-exit` inside the container. This syncs your RAM session back to the secure volume before closing.
+
+#### 2. Backing up "The Brain" (Host Side)
+
+To create a permanent, timestamped snapshot of Claude's memory on your Windows host (for long-term storage):
+
+```bash
+sh backup-memory.sh
+```
+
+- **Location:** `./memory_backup/YYYYMMDD_HHMMSS/`
+- **Contains:** Global tool state (`.claude`) and project settings (`.claude.json`).
+
+#### 3. Importing Existing Projects
+
+If you have an existing project folder on Windows that you want to move into a Vault:
+
+1. Run `setup-project.sh my-project -b` to create an empty Vault.
+2. Copy your existing code files _into_ that new folder.
+3. Run the import script:
+
+```bash
+# Handle the `docker cp` & permission fixes automatically
+sh import.sh
+```
+
+### The "State Cloning" Workflow
+
+Because of Named Volumes usage, the data is essentially a portable "brain" that can be plugged into any body (container) built.
+
+1. Export the Source:
+    - Run sh backup.sh in the project folder to create the .tar.gz file.
+2. Create the Target:
+    - Run ./setup-project.sh [new_project_name] -b to create a fresh, empty environment.
+3. Transfer the "Brain":
+    - Copy the backup file from the previous project folder into the new one.
+4. Inject the State:
+    - Run sh restore.sh inside the new project folder and select the copied backup file.
+
 ### Network Access
 
 - Docker containers are isolated by default, but to see your project's dev server on other devices, use the `--host` flag from within the container.
@@ -184,7 +247,7 @@ docker compose down
 - Find your computer's IP then navigate to it from any device on your network, including the port number.
     - Example: `http://192.168.1.22:5173`
 
-### Backup/Restore
+### Backup/Restore Named Volume
 
 > "Zip it up, and zip it _out!_"
 
@@ -199,29 +262,6 @@ docker compose stop
 docker run --rm -v your_project_data:/dest -v $(pwd):/backup alpine sh -c "rm -rf /dest/* && tar xzf /backup/your_backup_file.tar.gz -C /dest"
 docker compose up -d
 ```
-
-## The "State Cloning" Workflow
-
-Because of Named Volumes usage, the data is essentially a portable "brain" that can be plugged into any body (container) built.
-
-1. Export the Source:
-    - Run sh backup.sh in the project folder to create the .tar.gz file.
-2. Create the Target:
-    - Run ./setup-project.sh [new_project_name] -b to create a fresh, empty environment.
-3. Transfer the "Brain":
-    - Copy the backup file from the previous project folder into the new one.
-4. Inject the State:
-    - Run sh restore.sh inside the new project folder and select the copied backup file.
-
-## Helpful Alias Suggestions
-
-| Alias   | Command                                       | Purpose                             |
-| :------ | :-------------------------------------------- | :---------------------------------- |
-| c-up    | `docker compose up -d`                        | Start container                     |
-| c-down  | `docker compose down`                         | Kill container (but keep the data). |
-| c-enter | `docker exec -it ${PROJ_NAME}_container bash` | Jump in                             |
-| c-back  | `sh backup.sh`                                | "Zip it _out!_"                     |
-| c-logs  | `docker compose logs -f`                      | See what's actually going on        |
 
 ## Troubleshooting
 
