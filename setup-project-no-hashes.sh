@@ -1,12 +1,8 @@
 #!/bin/bash
 
-# Code Vault
-# v1.2.0
-# https://github.com/farhanjiwani/code-vault
-
 # 00. Pinned Versions && User UID ARGs
-## TODO: Pin new hashes/digests to known-good builds every 6 months or so
-NODE_IMG_DIGEST="sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d"
+## TODO: Pin new hashes/digests to known-good builds every 6 months or o
+NODE_IMG_DIGEST="sha256:5373f1906319b3a1f291da5d102f4ce5c77ccbe29eb637f072b6c7b70443fc36"
 GIT_PROMPT_HASH="fbcdfab34852329929e6bfdd2bac8e49f2e3d8e3"
 GITIGNORE_HASH="10b26ce43da9337f75fb3d4e8d034c4a30ea6f96"
 USER_UID="5001"
@@ -55,7 +51,7 @@ cat <<EOF > Dockerfile
 #  - passwd (usermod/groupmod), curl
 #  - Claude helpers: git, ripgrep, jq, tree
 #  - git-prompt.sh
-FROM node:24.18.0-bookworm-slim@${NODE_IMG_DIGEST}
+FROM node:22-slim@${NODE_IMG_DIGEST}
 ARG GIT_PROMPT_HASH=${GIT_PROMPT_HASH}
 ARG USER_UID=${USER_UID}
 
@@ -106,34 +102,21 @@ alias gd='git diff'
 alias gds='git diff --staged'
 alias gl='git log --oneline --graph --all'
 
-# Save/Export Claude's memory before exiting the container (force overwriting read-only Git pack files).
-alias c-exit='echo -e "\e[33mSaving memory...\e[0m" && mkdir -p /app/.vault_memory && chmod -R +w /app/.vault_memory/.claude 2>/dev/null; cp -rf /home/node/.claude /app/.vault_memory/ && cp -f /home/node/.claude.json /app/.vault_memory/.claude.json 2>/dev/null && exit'
-
 echo -e "\n\e[92m--- Code Vault Ready --- \e[0m"
-echo -e "Type \e[96mclaude\e[0m to start the AI assistant."
-echo -e "Type \e[96mc-exit\e[0m to save memory to the host & exit.\n"
+echo -e "Type \e[96mclaude\e[0m to start the AI assistant.\n"
 GIT_PROMPT
 
 # Create entrypoint script that hydrates the writable /home/node tmpfs
 RUN cat <<'ENTRYPOINT_SCRIPT' > /opt/node-dotfiles/entrypoint.sh
 #!/bin/bash
-
-# 1. Hydrate Shell
 # Copy staged dotfiles into the writable /home/node (tmpfs)
 cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc
 cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh
 
-# 2. Create standard dirs Claude Code expects
+# Create subdirectories Claude Code expects
 mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \
-  /home/node/.claude /home/node/.local/share /home/node/.local/bin \
-  /home/node/.npm-global
-
-# 3. WARM START: Restore Claude memory from persistent volume if it exists
-if [ -d "/app/.vault_memory/.claude" ]; then
-    echo -e "\e[33mRestoring Claude memory from Vault...\e[0m"
-    cp -r /app/.vault_memory/.claude/. /home/node/.claude/
-    cp /app/.vault_memory/.claude.json /home/node/.claude.json
-fi
+         /home/node/.claude /home/node/.local/share /home/node/.local/bin \
+         /home/node/.npm-global
 
 exec "$@"
 ENTRYPOINT_SCRIPT
@@ -170,8 +153,7 @@ services:
       - ${PROJ_NAME}_data:/app
     tmpfs:
       - /home/node:size=512M,uid=${USER_UID},gid=${USER_UID}
-      - /tmp:size=2G,exec
-      - /home/node/.vscode-server:size=2G,exec
+      - /tmp:size=512M,exec
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -195,15 +177,14 @@ volumes:
     name: ${PROJ_NAME}_data
 EOF
 
-# 5. Helpful Tools (Host)
-# 5a. Create local backup script
+# 6. Create local backup script
 cat <<EOF > backup.sh
 #!/bin/bash
 
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="backup_${PROJ_NAME}_\${TIMESTAMP}.tar.gz"
 
-echo -e "\e[94;103m Creating backup: \e[0m \e[96m\${BACKUP_NAME}\e[0m..."
+echo "Creating backup: \${BACKUP_NAME}..."
 MSYS_NO_PATHCONV=1 docker run --rm \\
   -v ${PROJ_NAME}_data:/source:ro \\
   -v "\$(pwd)":/backup \\
@@ -211,90 +192,45 @@ MSYS_NO_PATHCONV=1 docker run --rm \\
 
 # Verification
 if [ -f "\${BACKUP_NAME}" ]; then
-  echo -e "\e[93;42m Done! \e[0m Snapshot saved.\n"
-  echo -e "\e[4;36mContents summary:\e[0;96m"
+  echo "Done! Snapshot saved to \${BACKUP_NAME}"
+  echo "Contents summary:"
   tar -tf "\${BACKUP_NAME}" | head -n 5
 else
-  echo -e "\e[93;41m ERROR: \e[0m Backup file was not created."
+  echo "ERROR: Backup file was not created."
 fi
 EOF
+
 chmod +x backup.sh
 
-# 5b. Create local restore script
+# 7. Create local restore script
 cat <<EOF > restore.sh
 #!/bin/bash
 
-echo -e "\e[4;36mAvailable backups in this folder:\e[0;96m"
-ls -1 *.tar.gz 2>/dev/null || echo -e "\e[31m No backups found.\e[0m"
+echo "Available backups in this folder:"
+ls -1 *.tar.gz 2>/dev/null || echo "No backups found."
 
-read -p $'\n\e[93;44m Enter the full filename of the backup to restore: \e[0m ' RESTORE_FILE
+read -p "Enter the full filename of the backup to restore: " RESTORE_FILE
 
 if [ -f "\$RESTORE_FILE" ]; then
-echo -e "\e[4;43m Warning: \e[0m This will wipe the current project volume and replace it with the\n           backup."
-  read -p $'\n\e[93;44m Are you sure? (y/n): \e[0m ' CONFIRM
+  echo "Warning: This will wipe the current project volume and replace it with the backup."
+  read -p "Are you sure? (y/n): " CONFIRM
   if [ "\$CONFIRM" == "y" ]; then
-    echo -e "\e[33mStopping containers to ensure a safe restore..."
+    echo "Stopping containers to ensure a safe restore..."
     docker compose stop
     echo "Restoring data..."
     MSYS_NO_PATHCONV=1 docker run --rm \\
       -v ${PROJ_NAME}_data:/dest \\
       -v "\$(pwd)":/backup \\
       alpine sh -c "rm -rf /dest/* && tar xzf /backup/\$RESTORE_FILE -C /dest" \\
-      && echo -e "\e[93;42m Restore complete! \e[0m Run \e[96mdocker compose up -d\e[0m to start your environment again." \\
-      || echo "\e[93;41m ERROR: \e[0m Restore failed!"
+      && echo "Restore complete! Run 'docker compose up -d' to start your environment again." \\
+      || echo "ERROR: Restore failed!"
   fi
 else
-  echo -e "\e[93;41m ERROR: \e[0m File \e[96m\${RESTORE_FILE}\e[0m not found."
+  echo "Error: File '\$RESTORE_FILE' not found."
 fi
 EOF
+
 chmod +x restore.sh
-
-# 5c. Create local memory backup script
-cat <<EOF > backup-memory.sh
-#!/bin/bash
-
-PROJ_NAME=\$(basename "\$(pwd)")
-TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="./memory_backup/\${TIMESTAMP}"
-
-mkdir -p "\$BACKUP_DIR"
-
-echo -e "\n\e[33mSnapshoting Claude's brain to \$BACKUP_DIR...\e[0m"
-# Copy from the running container's tmpfs to your host
-docker cp \${PROJ_NAME}_container:/home/node/.claude "\${BACKUP_DIR}/.claude"
-docker cp \${PROJ_NAME}_container:/home/node/.claude.json "\${BACKUP_DIR}/.claude.json"
-docker cp \${PROJ_NAME}_container:/app/.claude.json "\${BACKUP_DIR}/.claude.json" 2>/dev/null
-
-echo -e "\e[93;42m Done. \e[0m"
-EOF
-chmod +x backup-memory.sh
-
-# 5d. Create local import script (The Bridge)
-cat <<EOF > import.sh
-#!/bin/bash
-
-echo -e "\e[94m--- Code Vault Import ---\e[0m"
-echo -e "\e[33mThis will securely inject files from your CURRENT folder into the vault.\e[0m"
-read -p \$'\n\e[93;44m Are you in the root of the project you want to import? (y/n): \e[0m ' CONFIRM
-
-if [ "\$CONFIRM" == "y" ]; then
-  echo -e "\e[33mInjecting files via secure Sidecar container...\e[0m"
-
-  # Spin up a temporary Alpine container with full capabilities to copy and chown the files,
-  # bypassing the security restrictions of the locked-down Claude container.
-  MSYS_NO_PATHCONV=1 docker run --rm \\
-    -v "\$(pwd):/source:ro" \\
-    -v ${PROJ_NAME}_data:/app \\
-    alpine sh -c "cp -a /source/. /app/ && chown -R ${USER_UID}:${USER_UID} /app"
-
-  echo -e "\e[92m✓ Import and Permission Fix Complete!\e[0m"
-  echo -e "You can now \e[96mc-enter\e[0m the vault."
-else
-  echo -e "\e[93;41m Aborting. \e[0;96m Please navigate to the source code folder first.\e[0m"
-fi
-EOF
-chmod +x import.sh
-
 
 if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
   MSYS_NO_PATHCONV=1 docker compose up -d --build
@@ -311,23 +247,20 @@ if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
 
     # Named volume backups
     *.tar.gz
-
-    # Claude Code Memory Vault
-    .vault_memory/
-    .claude/
     GIT_IGNORE"
 
   printf -- "\e[93m-%0.s" {1..80}
   echo -e "\n\n\e[93;42m Setup complete! \e[0m"
   echo -e "Enter the container: \e[96mcd ${PROJ_NAME} && docker exec -it ${PROJ_NAME}_container bash\e[0m"
   echo ""
-  echo -e "\e[33m⚠  REMINDER:\e[0m Add your real API key to \e[96m${PROJ_NAME}/.env\e[0m on the host"
-  echo -e "   (unless using \e[96m/login\e[0m), then restart: \e[96mdocker compose restart\e[0m"
+  echo -e "\e[33m⚠  REMINDER:\e[0m Add your real API key to \e[96m${PROJ_NAME}/.env\e[0m on the host (unless using \e[96m/login\e[0m),"
+  echo -e "   then restart: \e[96mdocker compose restart\e[0m"
 else
   echo -e "\n\e[93;42m Setup complete! \e[0m\n"
   echo -e "\e[4;36mNext steps:\e[0m"
+  echo -e "\e[36m0.\e[0m Ignore any '\e[96m__git_ps1\e[0m: command not found' errors."
   echo -e "\e[36m1a.\e[0m If using Workplace API: Add key to \e[96m$PROJ_NAME/.env\e[0m (see \e[96m.env.example\e[0m)"
-  echo -e "\e[36m1b.\e[0m If using Personal Pro: Just run \e[96mclaude\e[0m and type \e[96m/login\e[0m from within the container."
+  echo -e "\e[36m1b.\e[0m If using Personal Pro: Just run \e[96mclaude\e[0m and type \e[96m/login\e[0m from within the" \ "        container."
   echo -e "\e[36m2.\e[0m Update ports section in \e[96mdocker-compose.yml\e[0m if needed."
   echo -e "\e[36m3.\e[0m Run: \e[96mcd $PROJ_NAME && docker compose up -d --build\e[0m"
   echo -e "\e[36m4.\e[0m Enter the container: \e[96mdocker exec -it ${PROJ_NAME}_container bash\e[0m"
