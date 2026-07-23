@@ -57,7 +57,7 @@ alias gl='git log --oneline --graph --all'
 alias c-exit='echo -e "\e[33mSaving memory...\e[0m" && mkdir -p /app/.vault_memory && cp -r /home/node/.claude /app/.vault_memory/ && cp /home/node/.claude.json /app/.vault_memory/.claude.json 2>/dev/null && exit'
 
 echo -e "\n\e[92m--- Code Vault Ready --- \e[0m"
-echo -e "Type \e[96mclaude\e[0m to start the AI assistant.\n"
+echo -e "Type \e[96mclaude\e[0m to start the AI assistant."
 echo -e "Type \e[96mc-exit\e[0m to save memory to the host & exit.\n"
 GIT_PROMPT
 

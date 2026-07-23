@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/farhanjiwani/code-vault"></a> <a href="https://github.com/farhanjiwani/code-vault/commits/main/"><img alt="GitHub commits since latest release" src="https://img.shields.io/github/commits-since/farhanjiwani/code-vault/latest"></a>
   <br />
-  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v1.2.0.zip"></a>
+  <a href="https://github.com/farhanjiwani/code-vault/releases"><img alt="GitHub Downloads (specific asset, latest release)" src="https://img.shields.io/github/downloads/farhanjiwani/code-vault/latest/v2.0.0.zip"></a>
 </p>
 
 ---
@@ -26,7 +26,7 @@
 > **Use at your own risk!**
 > ⚠
 
-I am not responsible for any harm or loss that occurs while using this script or the containers it has created. Use your own caution when dealing with AI tools such as Claude.
+I am not responsible for any harm or loss that occurs while using this script or the containers it has created. Use your own caution when dealing with AI tools such as Claude, which might get smart enough to escape the container.
 
 This script has been tested on (so far):
 
