@@ -1,11 +1,15 @@
 #!/bin/bash
 
 # Code Vault
-# v1.2.0
+# v2.0.0
 # https://github.com/farhanjiwani/code-vault
 
 # 00. Pinned Versions && User UID ARGs
 ## TODO: Pin new hashes/digests to known-good builds every 6 months or so
+## Current: https://hub.docker.com/_/node/tags?name=24.18.0-bookworm-slim
+## - [x] linux/amd64
+## - [ ] linux/arm64/v8
+## - [ ] linux/ppc64le
 NODE_IMG_DIGEST="sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d"
 GIT_PROMPT_HASH="fbcdfab34852329929e6bfdd2bac8e49f2e3d8e3"
 GITIGNORE_HASH="10b26ce43da9337f75fb3d4e8d034c4a30ea6f96"
@@ -24,6 +28,7 @@ fi
 PROJ_NAME=${PROJ_NAME:-claude_workspace}
 
 # 2. Create project directory and enter it
+## MSYS_NO_PATHCONV=1 disables converting Unix-style paths to Windows-style ones
 MSYS_NO_PATHCONV=1 mkdir -p "$PROJ_NAME" \
   && MSYS_NO_PATHCONV=1 cd "$PROJ_NAME" \
   || { echo "Failed to enter '${PROJ_NAME}' directory"; exit 1; }
@@ -50,7 +55,7 @@ EOF
 # 4b. Create Dockerfile
 cat <<EOF > Dockerfile
 # Uses:
-#  - node-slim: https://hub.docker.com/layers/library/node/22-slim/
+#  - node-slim: https://hub.docker.com/layers/library/node/24.18.0-bookworm-slim/
 # Installs:
 #  - passwd (usermod/groupmod), curl
 #  - Claude helpers: git, ripgrep, jq, tree
@@ -77,6 +82,9 @@ RUN apt-get install -y git ripgrep curl jq tree \
 
 # Install Claude (globally)
 RUN npm install -g @anthropic-ai/claude-code
+
+# !! Optional Installs - UPDATE AS NEEDED
+RUN apt-get install -y vim
 
 # Clean PATH
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/node/.local/bin"
@@ -207,7 +215,12 @@ echo -e "\e[94;103m Creating backup: \e[0m \e[96m\${BACKUP_NAME}\e[0m..."
 MSYS_NO_PATHCONV=1 docker run --rm \\
   -v ${PROJ_NAME}_data:/source:ro \\
   -v "\$(pwd)":/backup \\
-  alpine tar czf /backup/\${BACKUP_NAME} -C /source .
+  node:24.18.0-bookworm-slim \
+  tar --no-xattrs --warning=no-file-changed \
+      --exclude='./node_modules' \
+      --exclude='./.git' \
+      --exclude='./.astro' \
+      -czf /backup/${BACKUP_NAME} -C /source .
 
 # Verification
 if [ -f "\${BACKUP_NAME}" ]; then
@@ -239,7 +252,8 @@ echo -e "\e[4;43m Warning: \e[0m This will wipe the current project volume and r
     MSYS_NO_PATHCONV=1 docker run --rm \\
       -v ${PROJ_NAME}_data:/dest \\
       -v "\$(pwd)":/backup \\
-      alpine sh -c "rm -rf /dest/* && tar xzf /backup/\$RESTORE_FILE -C /dest" \\
+      node:24.18.0-bookworm-slim \\
+      sh -c "rm -rf /dest/* && tar xzf /backup/\$RESTORE_FILE -C /dest" \\
       && echo -e "\e[93;42m Restore complete! \e[0m Run \e[96mdocker compose up -d\e[0m to start your environment again." \\
       || echo "\e[93;41m ERROR: \e[0m Restore failed!"
   fi
@@ -280,12 +294,13 @@ read -p \$'\n\e[93;44m Are you in the root of the project you want to import? (y
 if [ "\$CONFIRM" == "y" ]; then
   echo -e "\e[33mInjecting files via secure Sidecar container...\e[0m"
 
-  # Spin up a temporary Alpine container with full capabilities to copy and chown the files,
+  # Spin up a temporary Bookworm container with full capabilities to copy and chown the files,
   # bypassing the security restrictions of the locked-down Claude container.
   MSYS_NO_PATHCONV=1 docker run --rm \\
     -v "\$(pwd):/source:ro" \\
     -v ${PROJ_NAME}_data:/app \\
-    alpine sh -c "cp -a /source/. /app/ && chown -R ${USER_UID}:${USER_UID} /app"
+    node:24.18.0-bookworm-slim \\
+    sh -c "cp -a /source/. /app/ && chown -R ${USER_UID}:${USER_UID} /app"
 
   echo -e "\e[92m✓ Import and Permission Fix Complete!\e[0m"
   echo -e "You can now \e[96mc-enter\e[0m the vault."
@@ -309,13 +324,13 @@ if [ "$AUTO_BUILD" == "-b" ] || [ "$AUTO_BUILD" == "--build" ]; then
     'https://raw.githubusercontent.com/github/gitignore/${GITIGNORE_HASH}/Node.gitignore' -o /app/.gitignore \
     && cat <<'GIT_IGNORE' >> /app/.gitignore
 
-    # Named volume backups
-    *.tar.gz
+# Named volume backups
+*.tar.gz
 
-    # Claude Code Memory Vault
-    .vault_memory/
-    .claude/
-    GIT_IGNORE"
+# Claude Code Memory Vault
+.vault_memory/
+.claude/
+GIT_IGNORE"
 
   printf -- "\e[93m-%0.s" {1..80}
   echo -e "\n\n\e[93;42m Setup complete! \e[0m"
