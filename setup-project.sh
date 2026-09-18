@@ -2,7 +2,7 @@
 set -eo pipefail
 
 # Code Vault
-# v2.1.0
+# v2.1.1
 # https://github.com/farhanjiwani/code-vault
 
 # 00. Pinned Versions && User UID ARGs
@@ -16,7 +16,39 @@ NODE_IMG_DIGEST="sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b
 GIT_PROMPT_HASH="fbcdfab34852329929e6bfdd2bac8e49f2e3d8e3"
 GITIGNORE_HASH="10b26ce43da9337f75fb3d4e8d034c4a30ea6f96"
 
-echo -e "\e[94m=== Code Vault Configuration Wizard ===\e[0m\n"
+## SSH Config
+KEY_NAME="id_ed25519_code-vault"
+KEY_PATH="$HOME/.ssh/$KEY_NAME"
+SSH_CONFIG="$HOME/.ssh/config"
+
+echo -e "\e[92m=== Code Vault Configuration Wizard ===\e[0m\n"
+echo -e "\e[34m[1/4] Checking SSH Key Pair...\e[0m"
+if [ ! -f "$KEY_PATH" ]; then
+  echo "Generating dedicated vault key pair..."
+  ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -C "code-vault-key"
+else
+  echo "Key pair already exists at $KEY_PATH"
+fi
+
+echo -e "\e[34m[2/4] Updating Host SSH Config...\e[0m"
+mkdir -p "$HOME/.ssh"
+touch "$SSH_CONFIG"
+
+if ! grep -q "Host code-vault" "$SSH_CONFIG"; then
+  cat <<EOF >> "$SSH_CONFIG"
+
+Host code-vault
+    HostName 127.0.0.1
+    Port 2222
+    User node
+    IdentityFile ~/.ssh/$KEY_NAME
+    IdentitiesOnly yes
+    LogLevel QUIET
+EOF
+  echo "Appended 'code-vault' profile to $SSH_CONFIG"
+else
+  echo "SSH config profile 'code-vault' already present."
+fi
 
 # 0. Check for existing configuration
 CONFIG_FILE=".harness-config"
@@ -31,32 +63,32 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 if [ "${SKIP_WIZARD:-false}" != true ]; then
-    # 1. Project Name
+    ## 1. Project Name
     PROJ_NAME="${PROJ_NAME}"
-    if [ -z "${PROJ_NAME+x}" ]; then
+    if [ -z "${PROJ_NAME-}" ]; then
         read -p $'\e[36m1. Project Name\e[0m [claude_workspace]: ' PROJ_NAME
 	PROJ_NAME=${PROJ_NAME:-claude_workspace}
     fi
 
-    # 2. Host UID (Auto-detects the current user's ID to prevent Docker file lockouts)
+    ## 2. Host UID (Auto-detects the current user's ID to prevent Docker file lockouts)
     USER_UID="${USER_UID}"
-    if [ -z "${USER_UID+x}" ]; then
+    if [ -z "${USER_UID-}" ]; then
         DETECTED_UID=$(id -u 2>/dev/null || echo 5001)
 	read -p $'\e[36m2. Container User UID\e[0m [Host UID: '"$DETECTED_UID"']: ' USER_UID
 	USER_UID=${USER_UID:-$DETECTED_UID}
     fi
 
-    # 3. Exposed Ports (Defaults cover Astro, Vue/Nuxt, and Vite)
+    ## 3. Exposed Ports (Defaults cover Astro, Vue/Nuxt, and Vite)
     PROJ_PORTS="${PROJ_PORTS}"
-    if [ -z "${PROJ_PORTS+x}" ]; then
-        read -p $'\e[36m3. Exposed Ports\e[0m (Space-separated) [5173 3000 4321]: ' PROJ_PORTS
-	PROJ_PORTS=${PROJ_PORTS:-5173 3000 4321}
+    if [ -z "${PROJ_PORTS-}" ]; then
+        read -p $'\e[36m3. Exposed Ports\e[0m (Space-separated) [2222 5173 3000 4321]: ' PROJ_PORTS
+	PROJ_PORTS=${PROJ_PORTS:-2222 5173 3000 4321}
     fi
 
-    # 4. Resource Limits (Native Bash select menu)
+    ## 4. Resource Limits (Native Bash select menu)
     CPUS="${CPUS}"
     MEM="${MEM}"
-    if [ -z "${CPUS+x}" ] || [ -z "${MEM+x}" ] ; then
+    if [ -z "${CPUS-}" ] || [ -z "${MEM-}" ] ; then
         echo -e "\n\e[36m4. Container Resource Limits:\e[0m"
 	PS3="Select a profile (1-3): "
 	select RES_PROFILE in "Lightweight (1 CPU / 2GB)" "Standard (2 CPU / 4GB)" "Uncapped (Use all host resources)"; do
@@ -70,29 +102,29 @@ if [ "${SKIP_WIZARD:-false}" != true ]; then
 	echo ""
     fi
 
-    # 5. Optional Packages
+    ## 5. Optional Packages
     APT_PKGS="${APT_PKGS}"
-    if [ -z "${APT_PKGS+x}" ]; then
+    if [ -z "${APT_PKGS-}" ]; then
         read -p $'\e[36m5. Extra apt packages\e[0m (Space-separated) [vim]: ' APT_PKGS
 	APT_PKGS=${APT_PKGS:-vim}
     fi
 
-    # 6. DNS Resolution
+    ## 6. DNS Resolution
     CUSTOM_DNS="${CUSTOM_DNS}"
-    if [ -z "${CUSTOM_DNS+x}" ]; then
+    if [ -z "${CUSTOM_DNS-}" ]; then
 	read -p $'\e[36m6. Custom DNS\e[0m (e.g., 8.8.8.8. Leave blank for Docker default): ' CUSTOM_DNS
     fi
 
-    # 7. Auto-Build
+    ## 7. Auto-Build
     AUTO_BUILD="${AUTO_BUILD}"
-    if [ -z "${AUTO_BUILD+x}" ]; then
+    if [ -z "${AUTO_BUILD-}" ]; then
 	read -p $'\e[36m8. Initialize and build container immediately?\e[0m (Y/n): ' AUTO_BUILD
 	AUTO_BUILD=${AUTO_BUILD:-Y}
     fi
 
-    # 8. Save Configuration (Stateless by default, persistent by choice)
+    ## 8. Save Configuration (Stateless by default, persistent by choice)
     SAVE_CONF="${SAVE_CONF}"
-    if [ -z "${SAVE_CONF+x}" ]; then
+    if [ -z "${SAVE_CONF-}" ]; then
 	read -p $'\e[36m9. Save these settings to \e[1m'"$CONFIG_FILE"$'\e[22m for future runs?\e[0m (Y/n): ' SAVE_CONF
 	SAVE_CONF=${SAVE_CONF:-Y}
     fi
@@ -114,14 +146,14 @@ EOF
 fi
 
 # 1. Format YAML
-# Format Ports
+## Format Ports
 PORT_BINDINGS=""
 for port in $PROJ_PORTS; do
   PORT_BINDINGS="$PORT_BINDINGS
       - \"127.0.0.1:${port}:${port}\""
 done
 
-# Format DNS conditionally
+## Format DNS conditionally
 DNS_BLOCK=""
 if [ -n "$CUSTOM_DNS" ]; then
   DNS_BLOCK="
@@ -129,7 +161,8 @@ if [ -n "$CUSTOM_DNS" ]; then
       - ${CUSTOM_DNS}"
 fi
 
-# Format Resource Limits conditionally
+echo -e "\n\e[92m=== Generating Environment ===\e[0m"
+## Format Resource Limits conditionally
 RESOURCE_BLOCK=""
 if [ "$CPUS" != "0" ]; then
   RESOURCE_BLOCK="
@@ -140,8 +173,6 @@ if [ "$CPUS" != "0" ]; then
           memory: ${MEM}"
 fi
 
-echo -e "\n\e[92m=== Generating Environment ===\e[0m"
-
 # 2. Create project directory and enter it
 ## MSYS_NO_PATHCONV=1 disables converting Unix-style paths to Windows-style ones
 MSYS_NO_PATHCONV=1 mkdir -p "$PROJ_NAME" \
@@ -149,7 +180,7 @@ MSYS_NO_PATHCONV=1 mkdir -p "$PROJ_NAME" \
   || { echo "Failed to enter '${PROJ_NAME}' directory"; exit 1; }
 
 # 3. Create .env template
-# If not using `/login`, add the API key to .env (not the example!)
+# If not using '/login', add the API key to .env (not the example!)
 echo "ANTHROPIC_API_KEY=sk-ant-xxxxxxxxx..." > .env.example
 cp .env.example .env
 
@@ -168,7 +199,10 @@ restore.sh
 EOF
 
 # 4b. Create Dockerfile
+echo -e "\e[34m[3/4] Generating Dockerfile...\e[0m"
 cat <<EOF > Dockerfile
+# syntax=docker/dockerfile:1
+
 # Uses:
 #  - node-slim: https://hub.docker.com/layers/library/node/${NODE_VERSION}-bookworm-slim/
 # Installs:
@@ -190,8 +224,14 @@ RUN apt-get update \\
 RUN apt-get install -y git ripgrep curl jq tree ${APT_PKGS} \\
   && curl -fSL --retry 3 --max-time 30 \\
   "https://raw.githubusercontent.com/git/git/\${GIT_PROMPT_HASH}/contrib/completion/git-prompt.sh" -o /tmp/.git-prompt.sh \\
-  && chown -R node:node /app \\
-  && rm -rf /var/lib/apt/lists/*
+  && chown -R node:node /app
+
+# Setup SSH Server
+RUN apt-get install -y openssh-server \\
+  && mkdir /var/run/sshd \\
+  && mkdir -p /home/node/.ssh /home/node/sshd_keys \\
+  && chown -R node:node /home/node/.ssh /home/node/sshd_keys \\
+  && rm -rf /var/lib/apt/lists/* # DO THIS LAST, ONCE DONE W? apt-get installs
 
 # Install Claude (globally)
 RUN npm install -g @anthropic-ai/claude-code
@@ -204,7 +244,7 @@ ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/nod
 RUN mkdir -p /opt/node-dotfiles \\
   && mv /tmp/.git-prompt.sh /opt/node-dotfiles/.git-prompt.sh
 
-RUN cat <<'GIT_PROMPT' > /opt/node-dotfiles/.bashrc
+COPY --chown=node:node <<'BASHRC' /opt/node-dotfiles/.bashrc
 source /home/node/.git-prompt.sh
 export PS1='[\[\e[1;37;104m\]\u\[\e[0m\]@\[\e[1;30m\]\h\[\e[0m\] \[\e[93m\]\W\[\e[33m\]\$(__git_ps1 " (%s)")\[\e[0m\]]\$ '
 
@@ -220,26 +260,68 @@ alias gfp='git fetch --all -p'
 alias gco='git checkout'
 alias gs='git status'
 alias ga='git add'
-alias gd='git diff'
+alias gd='git diff --ignore-all-space'
 alias gds='git diff --staged'
+alias gdwd='git diff --word-diff --color-words'
 alias gl='git log --oneline --graph --all'
 
 # Save/Export Claude's memory before exiting the container (force overwriting read-only Git pack files).
 alias c-exit='echo -e "\e[33mSaving memory...\e[0m" && mkdir -p /app/.vault_memory && chmod -R +w /app/.vault_memory/.claude 2>/dev/null; cp -rf /home/node/.claude /app/.vault_memory/ && cp -f /home/node/.claude.json /app/.vault_memory/.claude.json 2>/dev/null && exit'
 
-echo -e "\n\e[92m--- Code Vault Ready --- \e[0m"
-echo -e "Type \e[96mclaude\e[0m to start the AI assistant."
-echo -e "Type \e[96mc-exit\e[0m to save memory to the host & exit.\n"
-GIT_PROMPT
+echo -e "\n\e[92m--- Code Vault Ready --- \e[0m" >&2
+echo -e "Type \e[96mclaude\e[0m to start the AI assistant." >&2
+echo -e "Type \e[96mc-exit\e[0m to save memory to the host & exit.\n" >&2
+BASHRC
 
 # Create entrypoint script that hydrates the writable /home/node tmpfs
-RUN cat <<'ENTRYPOINT_SCRIPT' > /opt/node-dotfiles/entrypoint.sh
-#!/bin/bash
+COPY --chown=node:node --chmod=0755 <<'ENTRYPOINT_SCRIPT' /opt/node-dotfiles/entrypoint.sh
+#!/usr/bin/env bash
+set -e
+
+# 0. SSH setup for non-root user
+mkdir -p /home/node/.ssh /home/node/sshd_keys
+chmod 700 /home/node/.ssh
+
+## Copy mounted vault public key if present
+if [ -f /tmp/$KEY_NAME.pub ]; then
+  cp /tmp/$KEY_NAME.pub /home/node/.ssh/authorized_keys
+  chmod 600 /home/node/.ssh/authorized_keys
+fi
+
+## Generate SSH server host keys in dedicated UNPRIVILEGED directory (non-root)
+if [ ! -f /home/node/sshd_keys/ssh_host_ed25519_key ]; then
+  ssh-keygen -t ed25519 -f /home/node/sshd_keys/ssh_host_ed25519_key -N ""
+  chmod 600 /home/node/sshd_keys/ssh_host_ed25519_key
+fi
+
+## Ensure strict permissions to authorized_keys if writable
+if [ -f /home/node/.ssh/authorized_keys ] && [ -w /home/node/.ssh/authorized_keys ]; then
+  chmod 400 /home/node/.ssh/authorized_keys
+fi
+
+## Non-root SSH Config to run SSHD
+### NOTE: OpenSSH strictly checks that .ssh and authlrized_keys are owned by the user, and not writable by anyone else.
+###    However, 'StrictModes no' turns this safety check OFF. For now, this is kept as a cross-platform development
+###    tradeoff because Docker Desktop on Windows/MacOS translates host file permissions into the container
+###    unpredictably, (often mounting read-only files as root), OpenSSH will silently reject valid keys if StrictModes
+###    is enabled. But because this container is an ephemeral local sandbox and the SSH port should only be bound to
+###    localhost via docker-compose.yml, the risk of disabling strict permissions inside the container is minimum to 0.
+cat <<'SSHD_CONFIG' > /home/node/sshd_config
+Port 2222
+HostKey /home/node/sshd_keys/ssh_host_ed25519_key
+AuthorizedKeysFile /home/node/.ssh/authorized_keys
+PidFile /home/node/sshd.pid
+StrictModes no
+Subsystem sftp /usr/lib/openssh/sftp-server
+SSHD_CONFIG
+
+## Start non-root SSH daemon in the background, pointing to user config
+/usr/sbin/sshd -f /home/node/sshd_config
 
 # 1. Hydrate Shell
 # Copy staged dotfiles into the writable /home/node (tmpfs)
-cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc
-cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh
+cp -n /opt/node-dotfiles/.bashrc /home/node/.bashrc 2>/dev/null || true
+cp -n /opt/node-dotfiles/.git-prompt.sh /home/node/.git-prompt.sh 2>/dev/null || true
 
 # 2. Create standard dirs Claude Code expects
 mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \\
@@ -248,16 +330,13 @@ mkdir -p /home/node/.npm /home/node/.config /home/node/.cache \\
 
 # 3. WARM START: Restore Claude memory from persistent volume if it exists
 if [ -d "/app/.vault_memory/.claude" ]; then
-    echo -e "\e[33mRestoring Claude memory from Vault...\e[0m"
+    echo -e "\e[33mRestoring Claude memory from Vault...\e[0m" >&2
     cp -r /app/.vault_memory/.claude/. /home/node/.claude/
-    cp /app/.vault_memory/.claude.json /home/node/.claude.json
+    cp /app/.vault_memory/.claude.json /home/node/.claude.json 2>/dev/null || true
 fi
 
 exec "\$@"
 ENTRYPOINT_SCRIPT
-
-RUN chmod +x /opt/node-dotfiles/entrypoint.sh \\
-  && chown -R node:node /opt/node-dotfiles
 
 # Ensure user isn't root
 USER node
@@ -269,6 +348,7 @@ EOF
 # 4c. Create docker-compose.yml
 #   - Ports bound to 127.0.0.1 (localhost only) by default
 #   - tmpfs mounts have size limits to prevent RAM exhaustion
+echo -e "\e[34m[4/4] Generating docker-compose.yml...\e[0m"
 cat <<EOF > docker-compose.yml
 services:
   claude-dev:
@@ -277,11 +357,12 @@ services:
     read_only: true${RESOURCE_BLOCK}
     ports:${PORT_BINDINGS}
     volumes:
+      # Mount host's public key as the container's authorized_key file
+      - ~/.ssh/${KEY_NAME}.pub:/tmp/id_ed25519_code-vault.pub:ro
       - ${PROJ_NAME}_data:/app
     tmpfs:
       - /home/node:size=512M,uid=${USER_UID},gid=${USER_UID}
       - /tmp:size=2G,exec
-      - /home/node/.vscode-server:size=2G,exec${DNS_BLOCK}
     environment:
       - ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}
     stdin_open: true
@@ -305,7 +386,7 @@ EOF
 # 5. Helpful Tools (Host)
 # 5a. Create local backup script
 cat <<EOF > backup.sh
-#!/bin/bash
+#!/usr/bin/env bash
 
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="backup_${PROJ_NAME}_\${TIMESTAMP}.tar.gz"
@@ -334,7 +415,7 @@ chmod +x backup.sh
 
 # 5b. Create local restore script
 cat <<EOF > restore.sh
-#!/bin/bash
+#!/usr/bin/env bash
 
 echo -e "\e[4;36mAvailable backups in this folder:\e[0;96m"
 ls -1 *.tar.gz 2>/dev/null || echo -e "\e[31m No backups found.\e[0m"
@@ -364,7 +445,7 @@ chmod +x restore.sh
 
 # 5c. Create local memory backup script
 cat <<EOF > backup-memory.sh
-#!/bin/bash
+#!/usr/bin/env bash
 
 PROJ_NAME=\$(basename "\$(pwd)")
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
@@ -384,7 +465,7 @@ chmod +x backup-memory.sh
 
 # 5d. Create local import script (The Bridge)
 cat <<EOF > import.sh
-#!/bin/bash
+#!/usr/bin/env bash
 
 echo -e "\e[94m--- Code Vault Import ---\e[0m"
 echo -e "\e[33mThis will securely inject files from your CURRENT folder into the vault.\e[0m"
